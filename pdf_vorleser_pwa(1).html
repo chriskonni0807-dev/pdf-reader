@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Vorleser</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; }
+    button, input { margin: 10px 0; padding: 12px; font-size: 16px; }
+    #text { white-space: pre-wrap; border: 1px solid #ddd; padding: 15px; height: 300px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>PDF Vorleser</h1>
+  <input type="file" id="pdfFile" accept="application/pdf">
+  <br>
+  <label>Stimme:</label><br>
+  <select id="voiceSelect"></select><br>
+  <label>Geschwindigkeit: <span id="speedValue">1.0</span>x</label><br>
+  <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1">
+  <br>
+  <button onclick="startReading()">▶ Start</button>
+  <button onclick="pauseReading()">⏸ Pause</button>
+  <button onclick="stopReading()">⏹ Stop</button>
+  <div id="text">Bitte PDF auswählen...</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    let pdfText = "";
+    let availableVoices = [];
+    let utterance;
+    let currentIndex = parseInt(localStorage.getItem('readingPosition') || '0');
+
+    function loadVoices() {
+      availableVoices = speechSynthesis.getVoices().filter(v => v.lang.includes('de') || v.lang.includes('en'));
+      const select = document.getElementById('voiceSelect');
+      select.innerHTML = '';
+      availableVoices.forEach((voice, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        select.appendChild(option);
+      });
+    }
+
+    speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
+    document.getElementById('speed').addEventListener('input', e => {
+      document.getElementById('speedValue').innerText = e.target.value;
+    });
+
+    document.getElementById('pdfFile').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      pdfText = "";
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const text = content.items.map(item => item.str).join(' ');
+        pdfText += text + "
+
+";
+      }
+
+      document.getElementById('text').innerText = pdfText;
+      currentIndex = parseInt(localStorage.getItem('readingPosition') || '0');
+    });
+
+    function startReading() {
+      stopReading();
+      const textToRead = pdfText.slice(currentIndex);
+      utterance = new SpeechSynthesisUtterance(textToRead);
+      utterance.lang = 'de-DE';
+      utterance.rate = parseFloat(document.getElementById('speed').value);
+
+      const selectedIndex = document.getElementById('voiceSelect').value;
+      if (availableVoices[selectedIndex]) {
+        utterance.voice = availableVoices[selectedIndex];
+      }
+
+      utterance.onboundary = function(event) {
+        if (event.name === 'word') {
+          currentIndex += event.charIndex;
+          localStorage.setItem('readingPosition', currentIndex.toString());
+        }
+      };
+
+      utterance.onend = function() {
+        localStorage.setItem('readingPosition', '0');
+        currentIndex = 0;
+      };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    function pauseReading() {
+      speechSynthesis.pause();
+      localStorage.setItem('readingPosition', currentIndex.toString());
+    }
+
+    function stopReading() {
+      speechSynthesis.cancel();
+      localStorage.setItem('readingPosition', currentIndex.toString());
+    }
+  </script>
+</body>
+</html>
